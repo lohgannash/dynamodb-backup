@@ -1,0 +1,5 @@
+{
+    "action": "backup-table",
+    "frequency": "QuarterHourly",
+    "table_name": "test-data"
+}

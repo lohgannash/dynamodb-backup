@@ -15,7 +15,77 @@ Parameters:
   BackupBucketSuffix:
     Description: BackupBucketSuffix
     Type: String
+    Default: 'dynamodb-backup'
+  
+  EnableQuarterHourly:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  EnableHourly:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  EnableDaily:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  EnableWeekly:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  EnableMonthly:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  EnableYearly:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
 
+  KeepQuarterHourly:
+    Type: Number
+    Default: 1
+    Description: Number of days to keep quarter hourly backups
+  KeepHourly:
+    Type: Number
+    Default: 2
+    Description: Number of days to keep hourly backups
+  KeepDaily:
+    Type: Number
+    Default: 14
+    Description: Number of days to keep daily backups
+  KeepWeekly:
+    Type: Number
+    Default: 56  # 8*7=56
+    Description: Number of days to keep weekly backups
+  KeepMonthly:
+    Type: Number
+    Default: 365
+    Description: Number of days to keep monthly backups
+  KeepYearly:
+    Type: Number
+    Default: 3650 # 365 * 10
+    Description: Number of days to keep yearly backups
+
+Conditions:
+  QuarterHourlyEnabled: !Equals [!Ref EnableQuarterHourly,  true]
+  HourlyEnabled:        !Equals [!Ref EnableHourly,         true]
+  DailyEnabled:         !Equals [!Ref EnableDaily,          true]
+  WeeklyEnabled:        !Equals [!Ref EnableWeekly,         true]
+  MonthlyEnabled:       !Equals [!Ref EnableMonthly,        true]
+  YearlyEnabled:        !Equals [!Ref EnableYearly,         true]
 Resources:
   BackupBucket:
     Type: AWS::S3::Bucket
@@ -25,7 +95,47 @@ Resources:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-  FunctionRole:
+      LifecycleConfiguration:
+        Rules:
+          - Id: QuarterHourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepQuarterHourly
+            TagFilters:
+              - Key: Frequency
+                Value: QuarterHourly
+          - Id: HourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepHourly
+            TagFilters:
+              - Key: Frequency
+                Value: Hourly
+          - Id: DailyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepDaily
+            TagFilters:
+              - Key: Frequency
+                Value: Daily
+          - Id: WeeklyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepWeekly
+            TagFilters:
+              - Key: Frequency
+                Value: Weekly
+          - Id: MonthlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepMonthly
+            TagFilters:
+              - Key: Frequency
+                Value: Monthly
+          - Id: YearlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepYearly
+            TagFilters:
+              - Key: Frequency
+                Value: Yearly
+
+
+  BackupFunctionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -62,25 +172,151 @@ Resources:
                 - 'dynamodb:DescribeTable'
                 - 'dynamodb:Query'
                 - 'dynamodb:Scan'
+                - 'dynamodb:ListTagsOfResource'
               Resource: '*'
             - Effect: Allow
               Action:
                 - 's3:ListBucket'
               Resource: !Sub 'arn:aws:s3:::${BackupBucket}'
-  HelloWorldFunction:
+            - Effect: Allow
+              Action:
+                - 'lambda:InvokeFunction'
+                - 'lambda:InvokeAsync'
+              Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-BackupFunction*'
+  BackupFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: dynamodb-backup/
       Handler: app.lambda_handler
       Runtime: python3.7
+      Role: !GetAtt BackupFunctionRole.Arn
       Environment:
         Variables:
           BucketName: !Ref BackupBucket
           Region: !Ref 'AWS::Region'
-      Events:
-        BackupSchedule:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0/15 * * * ? *)
+          BackupEnabledTag: 'BackupEnabled'
+  BackupFunctionSelfInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: lambda.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunction.Arn
+
+
+
+  BackupFunctionQuarterHourlyBackupSchedule:
+    Condition: QuarterHourlyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0/15 * * * ? *)
+      Targets:
+        - 
+          Id: BackupFunctionQuarterHourlyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"QuarterHourly"}'
+  BackupFunctionQuarterHourlyBackupSchedulePermission:
+    Condition: QuarterHourlyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionQuarterHourlyBackupSchedule.Arn
+
+  BackupFunctionHourlyBackupSchedule:
+    Condition: HourlyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 * * * ? *)
+      Targets:
+        - 
+          Id: BackupFunctionHourlyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"Hourly"}'
+  BackupFunctionHourlyBackupSchedulePermission:
+    Condition: HourlyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionHourlyBackupSchedule.Arn
+
+  BackupFunctionDailyBackupSchedule:
+    Condition: DailyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 0 * * ? *)
+      Targets:
+        - 
+          Id: BackupFunctionDailyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"Daily"}'
+  BackupFunctionDailyBackupSchedulePermission:
+    Condition: DailyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionDailyBackupSchedule.Arn
+
+  BackupFunctionWeeklyBackupSchedule:
+    Condition: WeeklyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 0 ? * 1 *)
+      Targets:
+        - 
+          Id: BackupFunctionWeeklyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"Weekly"}'
+  BackupFunctionWeeklyBackupSchedulePermission:
+    Condition: WeeklyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionWeeklyBackupSchedule.Arn
+
+  BackupFunctionMonthlyBackupSchedule:
+    Condition: MonthlyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 0 1 * ? *)
+      Targets:
+        - 
+          Id: BackupFunctionMonthlyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"Monthly"}'
+  BackupFunctionMonthlyBackupSchedulePermission:
+    Condition: MonthlyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionMonthlyBackupSchedule.Arn
+
+  BackupFunctionYearlyBackupSchedule:
+    Condition: YearlyEnabled
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: cron(0 0 1 1 ? *)
+      Targets:
+        - 
+          Id: BackupFunctionYearlyBackupScheduleLambdaTarget
+          Arn: !GetAtt BackupFunction.Arn
+          Input: '{"action":"create-backups", "frequency":"Yearly"}'
+  BackupFunctionYearlyBackupSchedulePermission:
+    Condition: YearlyEnabled
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref BackupFunction
+      SourceArn: !GetAtt BackupFunctionYearlyBackupSchedule.Arn
 
 
