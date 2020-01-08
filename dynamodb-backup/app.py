@@ -9,6 +9,9 @@ Region = os.environ['Region']
 BucketName = os.environ['BucketName']
 BackupEnabledTag = os.environ['BackupEnabledTag']
 
+
+
+
 def get_dynamodb_tables(client):
     paginator = client.get_paginator('list_tables')
     page_iterator = paginator.paginate(PaginationConfig={'MaxItems': 100, 'PageSize': 100})
@@ -31,18 +34,45 @@ def filter_tables(client, table_names):
                     break
     return filtered_table_names
 
+def backup_table_config(client, bucket_path, table_name):
+    response  = client.describe_table(TableName=table_name)
+    fs = s3fs.S3FileSystem()
+    s3_path = "{0}/{1}{2}-Configuration.json".format(BucketName, bucket_path, table_name)
+    #    with fs.open(s3_path, 'w') as f:
+    #        f.write(json.dumps(response))
+    print(response)
+
+def parse_data(data):
+    for key in data.keys():
+        if 'M' in data[key]:
+            data[key]['M'] = parse_data(data[key]['M'])
+        if 'B' in data[key]:
+            data[key]['B'] = data[key]['B'].decode('ascii')
+        if 'BS' in data[key]:
+            binaryset = []
+            for value in data[key]['BS']:
+                binaryset.append(value.decode('ascii'))
+            data[key]['BS'] = binaryset
+    return data
+
+
 def backup_table(bucket_path, table_name, frequency):
     print("Backing up table " + table_name)
     client = boto3.client("dynamodb", region_name=Region)
 
+    backup_table_config(client, bucket_path, table_name)
+    
+
+
     # paginate dynamo table contents and write to S3 object
     paginator = client.get_paginator('scan')
-    page_iterator = paginator.paginate(TableName=table_name, Select='ALL_ATTRIBUTES', ConsistentRead=True, PaginationConfig={'MaxItems': 100, 'PageSize': 100})
+    page_iterator = paginator.paginate(TableName=table_name, Select='ALL_ATTRIBUTES', ConsistentRead=True, PaginationConfig={'PageSize': 100})
     fs = s3fs.S3FileSystem()
     s3_path = "{0}/{1}{2}-{3}.json".format(BucketName, bucket_path, table_name, frequency)
     with fs.open(s3_path, 'w') as f:
         for page in page_iterator:
             for item in page['Items']:
+                item = parse_data(item)
                 f.write(json.dumps(item) + "\n")
     print("Backup complete")
     print("Adding tags to backup")
@@ -79,9 +109,6 @@ def create_backups(frequency, arn):
 
 def lambda_handler(event, context):
     dt = datetime.datetime.utcnow()
-    
-
-    
     frequency = None
     if "frequency" in event:
         frequency = event["frequency"]

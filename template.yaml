@@ -19,40 +19,40 @@ Parameters:
   
   EnableQuarterHourly:
     Type: String
-    Default: true
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
   EnableHourly:
     Type: String
-    Default: false
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
   EnableDaily:
     Type: String
-    Default: false
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
   EnableWeekly:
     Type: String
-    Default: false
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
   EnableMonthly:
     Type: String
-    Default: true
+    Default: 'true'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
   EnableYearly:
     Type: String
-    Default: false
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
 
   KeepQuarterHourly:
     Type: Number
