@@ -14,7 +14,7 @@ BackupEnabledTag = os.environ['BackupEnabledTag']
 
 def get_dynamodb_tables(client):
     paginator = client.get_paginator('list_tables')
-    page_iterator = paginator.paginate(PaginationConfig={'MaxItems': 100, 'PageSize': 100})
+    page_iterator = paginator.paginate(PaginationConfig={'PageSize': 100})
     table_names = []
     for page in page_iterator:
         table_names.extend(page['TableNames'])
@@ -85,10 +85,12 @@ def backup_table(bucket_path, table_name, frequency):
     fs.put_tags(s3_path, tags)
     print("Tags added")
     
+
 def invoke_lambda(client, arn, event={}):
     print(f"Invoking lambda: {arn} with event: {json.dumps(event)}")
     response = client.invoke(FunctionName=arn, InvocationType="Event", Payload=json.dumps(event))
     print(f"Response: {response}")
+
 
 def create_backups(frequency, arn):
     ddb_client = boto3.client("dynamodb", region_name=Region)
@@ -102,9 +104,7 @@ def create_backups(frequency, arn):
         event["action"] = "backup-table"
         event["table_name"] = table
         event["frequency"] = frequency
-
         invoke_lambda(lambda_client, arn, event)
-
 
 
 def lambda_handler(event, context):
