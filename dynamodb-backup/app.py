@@ -61,14 +61,12 @@ def backup_table(bucket_path, table_name, frequency):
     client = boto3.client("dynamodb", region_name=Region)
 
     backup_table_config(client, bucket_path, table_name)
-    
-
 
     # paginate dynamo table contents and write to S3 object
     paginator = client.get_paginator('scan')
     page_iterator = paginator.paginate(TableName=table_name, Select='ALL_ATTRIBUTES', ConsistentRead=True, PaginationConfig={'PageSize': 100})
     fs = s3fs.S3FileSystem()
-    s3_path = "{0}/{1}{2}-{3}.json".format(BucketName, bucket_path, table_name, frequency)
+    s3_path = f'{BucketName}/{bucket_path}/{table_name}-{frequency}.json'
     with fs.open(s3_path, 'w') as f:
         for page in page_iterator:
             for item in page['Items']:
@@ -119,7 +117,7 @@ def lambda_handler(event, context):
 
         if event["action"] == "backup-table":
             if "table_name" in event:
-                bucket_path = "{0}/{1}/{2}/{3}/{4}/".format(dt.year, dt.month, dt.day, dt.hour, dt.minute)
+                bucket_path = dt.strftime('%Y-%m-%d/%H.%M.%S') # formats to '2020-12-31/23.59.59'
                 backup_table(bucket_path, event["table_name"], frequency)
     else:
         raise Exception("An 'action' is missing from this invocations payload")
