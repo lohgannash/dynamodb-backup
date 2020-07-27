@@ -8,8 +8,7 @@ import s3fs
 Region = os.environ['Region']
 BucketName = os.environ['BucketName']
 BackupEnabledTag = os.environ['BackupEnabledTag']
-
-
+UseDataPipelineFormat = os.environ['UseDataPipelineFormat'].lower() == 'true'
 
 
 def get_dynamodb_tables(client):
@@ -42,18 +41,67 @@ def backup_table_config(client, bucket_path, table_name):
     #        f.write(json.dumps(response))
     print(response)
 
-def parse_data(data):
-    for key in data.keys():
-        if 'M' in data[key]:
-            data[key]['M'] = parse_data(data[key]['M'])
-        if 'B' in data[key]:
-            data[key]['B'] = data[key]['B'].decode('ascii')
-        if 'BS' in data[key]:
-            binaryset = []
-            for value in data[key]['BS']:
-                binaryset.append(value.decode('ascii'))
-            data[key]['BS'] = binaryset
-    return data
+# def parse_list(l):
+#     for attributeValue in l:
+
+def parse_attribute(attribute): # e.g. {"type": "value"}
+
+
+def parse_item(item):
+    # for reference on all attribute types:
+    # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_AttributeValue.html
+    if UseDataPipelineFormat:
+        response = {}
+        for attribute in item.keys():
+            response[attribute] = {}
+            if 'B' in item[attribute]: # binary e.g. {"B": "dGhpcyB0ZXh0IGlzIGJhc2U2NC1lbmNvZGVk"}
+                response[attribute]['b'] = parse_attribute(item_attribute)# item[attribute]['B'].decode('ascii')
+            elif 'BOOL' in item[attribute]: # boolean e.g. {"BOOL": true}
+                response[attribute]['bOOL'] = item[attribute]['BOOL']
+            elif 'BS' in item[attribute]: # binary set e.g. {"BS": ["U3Vubnk=", "UmFpbnk=", "U25vd3k="]}
+                binaryset = []
+                for value in item[attribute]['BS']:
+                    binaryset.append(value.decode('ascii'))
+                response[attribute]['bS'] = binaryset
+            elif 'L' in item[attribute]: # list e.g. {"L": [ {"S": "Cookies"} , {"S": "Coffee"}, {"N", "3.14159"}]}
+                l = []
+                for nestedItem in item[attribute]['L']:
+                    l.append(parse_item(nestedItem))
+                response[attribute]['l'] = l
+            elif 'M' in item[attribute]: # map e.g. {"M": {"Name": {"S": "Joe"}, "Age": {"N": "35"}}}
+                response[attribute]['m'] = parse_item(item[attribute]['M'])
+            elif 'N' in item[attribute]: # number e.g. {"N": "123.45"}
+                response[attribute]['n'] = item[attribute]['N']
+            elif 'NS' in item[attribute]: # number set e.g. {"NS": ["42.2", "-19", "7.5", "3.14"]}
+                response[attribute]['nS'] = item[attribute]['NS']
+            elif 'NULL' in item[attribute]: # e.g. {"NULL": true}
+                response[attribute]['nULLValue'] = item[attribute]['NULL']
+            elif 'S' in item[attribute]: # string e.g. {"S": "Hello"}
+                response[attribute]['s'] = item[attribute]['S']
+            elif 'SS' in item[attribute]: # string set e.g. {"SS": ["Giraffe", "Hippo" ,"Zebra"]}
+                response[attribute]['sS'] = item[attribute]['SS']
+            else:
+                print(f"ERROR: unrecognised attribute type {json.dumps(item[attribute])}")
+                # pass # should raise exception
+        return response
+    else:
+        # just manipulate original item object
+        for attribute in item.keys():
+            if 'M' in item[attribute]:
+                item[attribute]['M'] = parse_item(item[attribute]['M'])
+            if 'L' in item[attribute]:
+                l = []
+                for nestedItem in item[attribute]['L']:
+                    l.append(parse_item(nestedItem))
+                item[attribute]['L'] = l
+            if 'B' in item[attribute]:
+                item[attribute]['B'] = item[attribute]['B'].decode('ascii')
+            if 'BS' in item[attribute]:
+                binaryset = []
+                for value in item[attribute]['BS']:
+                    binaryset.append(value.decode('ascii'))
+                item[attribute]['BS'] = binaryset
+    return item
 
 
 def backup_table(bucket_path, table_name, frequency):
@@ -70,7 +118,7 @@ def backup_table(bucket_path, table_name, frequency):
     with fs.open(s3_path, 'w') as f:
         for page in page_iterator:
             for item in page['Items']:
-                item = parse_data(item)
+                item = parse_item(item)
                 f.write(json.dumps(item) + "\n")
     print("Backup complete")
     print("Adding tags to backup")
