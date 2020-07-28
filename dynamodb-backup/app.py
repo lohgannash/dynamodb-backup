@@ -108,6 +108,7 @@ def backup_table(bucket_path, table_name, frequency):
     page_iterator = paginator.paginate(TableName=table_name, Select='ALL_ATTRIBUTES', ConsistentRead=True, PaginationConfig={'PageSize': 100})
     fs = s3fs.S3FileSystem()
     s3_path = f'{BucketName}/{table_name}/{bucket_path}/{table_name}-{frequency}-{bucket_path}.json'
+        # each backup file must be in its own folder for data pipeline import job
     with fs.open(s3_path, 'w') as f:
         for page in page_iterator:
             for item in page['Items']:
