@@ -79,6 +79,13 @@ Parameters:
     Default: 3650 # 365 * 10
     Description: Number of days to keep yearly backups
 
+  UseDataPipelineFormat:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
 Conditions:
   QuarterHourlyEnabled: !Equals [!Ref EnableQuarterHourly,  true]
   HourlyEnabled:        !Equals [!Ref EnableHourly,         true]
@@ -195,6 +202,7 @@ Resources:
           BucketName: !Ref BackupBucket
           Region: !Ref 'AWS::Region'
           BackupEnabledTag: 'BackupEnabled'
+          UseDataPipelineFormat: !Ref UseDataPipelineFormat
   BackupFunctionSelfInvocationPermission:
     Type: AWS::Lambda::Permission
     Properties:
