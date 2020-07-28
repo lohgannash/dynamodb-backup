@@ -10,6 +10,19 @@ BucketName = os.environ['BucketName']
 BackupEnabledTag = os.environ['BackupEnabledTag']
 UseDataPipelineFormat = os.environ['UseDataPipelineFormat'].lower() == 'true'
 
+# data pipeline format transform
+DPLTransform = {
+    'B': 'b',
+    'BOOL': 'bOOL',
+    'BS': 'bS',
+    'L': 'l',
+    'M': 'm',
+    'N': 'n',
+    'NS': 'nS',
+    'NULL': 'nULLValue',
+    'S': 's',
+    'SS': 'sS'
+}
 
 def get_dynamodb_tables(client):
     paginator = client.get_paginator('list_tables')
@@ -41,67 +54,47 @@ def backup_table_config(client, bucket_path, table_name):
     #        f.write(json.dumps(response))
     print(response)
 
-# def parse_list(l):
-#     for attributeValue in l:
+# attributeValue parameter structure -> {"type": "value"}
+# this function only returns the "value" part after parsing
+def parse_attribute_value(attributeValue):
+    # for reference on all attribute types:
+    # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_AttributeValue.html
 
-def parse_attribute(attribute): # e.g. {"type": "value"}
+    if 'B' in attributeValue: # binary e.g. {"B": "dGhpcyB0ZXh0IGlzIGJhc2U2NC1lbmNvZGVk"}
+        return attributeValue['B'].decode('ascii')
+    elif 'BS' in attributeValue: # binary set e.g. {"BS": ["U3Vubnk=", "UmFpbnk=", "U25vd3k="]}
+        binaryset = []
+        for value in attributeValue['BS']:
+            binaryset.append(value.decode('ascii'))
+        return binaryset
+    elif 'L' in attributeValue: # list e.g. {"L": [ {"S": "Cookies"}, {"S": "Coffee"}, {"N", "3.14159"}]}
+        l = []
+        for nestedAttribute in attributeValue['L']:
+            for nestedAttributeType in nestedAttribute.keys():
+                listItem = {}
+                if UseDataPipelineFormat:
+                    listItem[DPLTransform[nestedAttributeType]] = parse_attribute_value(nestedAttribute)
+                else:
+                    listItem[nestedAttributeType] = parse_attribute_value(nestedAttribute)
+                l.append(listItem)
+        return l
+    elif 'M' in attributeValue: # map e.g. {"M": {"Name": {"S": "Joe"}, "Age": {"N": "35"}}}
+        return parse_item(attributeValue['M'])
+    else: # for all other types no special processing is required
+        for attributeType in attributeValue.keys():
+            return attributeValue[attributeType]
 
 
 def parse_item(item):
-    # for reference on all attribute types:
-    # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_AttributeValue.html
-    if UseDataPipelineFormat:
-        response = {}
-        for attribute in item.keys():
-            response[attribute] = {}
-            if 'B' in item[attribute]: # binary e.g. {"B": "dGhpcyB0ZXh0IGlzIGJhc2U2NC1lbmNvZGVk"}
-                response[attribute]['b'] = parse_attribute(item_attribute)# item[attribute]['B'].decode('ascii')
-            elif 'BOOL' in item[attribute]: # boolean e.g. {"BOOL": true}
-                response[attribute]['bOOL'] = item[attribute]['BOOL']
-            elif 'BS' in item[attribute]: # binary set e.g. {"BS": ["U3Vubnk=", "UmFpbnk=", "U25vd3k="]}
-                binaryset = []
-                for value in item[attribute]['BS']:
-                    binaryset.append(value.decode('ascii'))
-                response[attribute]['bS'] = binaryset
-            elif 'L' in item[attribute]: # list e.g. {"L": [ {"S": "Cookies"} , {"S": "Coffee"}, {"N", "3.14159"}]}
-                l = []
-                for nestedItem in item[attribute]['L']:
-                    l.append(parse_item(nestedItem))
-                response[attribute]['l'] = l
-            elif 'M' in item[attribute]: # map e.g. {"M": {"Name": {"S": "Joe"}, "Age": {"N": "35"}}}
-                response[attribute]['m'] = parse_item(item[attribute]['M'])
-            elif 'N' in item[attribute]: # number e.g. {"N": "123.45"}
-                response[attribute]['n'] = item[attribute]['N']
-            elif 'NS' in item[attribute]: # number set e.g. {"NS": ["42.2", "-19", "7.5", "3.14"]}
-                response[attribute]['nS'] = item[attribute]['NS']
-            elif 'NULL' in item[attribute]: # e.g. {"NULL": true}
-                response[attribute]['nULLValue'] = item[attribute]['NULL']
-            elif 'S' in item[attribute]: # string e.g. {"S": "Hello"}
-                response[attribute]['s'] = item[attribute]['S']
-            elif 'SS' in item[attribute]: # string set e.g. {"SS": ["Giraffe", "Hippo" ,"Zebra"]}
-                response[attribute]['sS'] = item[attribute]['SS']
+    response = {}
+    for attribute in item.keys():
+        response[attribute] = {}
+        for attributeType in item[attribute].keys():
+            if UseDataPipelineFormat:
+                response[attribute][DPLTransform[attributeType]] = parse_attribute_value(item[attribute])
             else:
-                print(f"ERROR: unrecognised attribute type {json.dumps(item[attribute])}")
-                # pass # should raise exception
-        return response
-    else:
-        # just manipulate original item object
-        for attribute in item.keys():
-            if 'M' in item[attribute]:
-                item[attribute]['M'] = parse_item(item[attribute]['M'])
-            if 'L' in item[attribute]:
-                l = []
-                for nestedItem in item[attribute]['L']:
-                    l.append(parse_item(nestedItem))
-                item[attribute]['L'] = l
-            if 'B' in item[attribute]:
-                item[attribute]['B'] = item[attribute]['B'].decode('ascii')
-            if 'BS' in item[attribute]:
-                binaryset = []
-                for value in item[attribute]['BS']:
-                    binaryset.append(value.decode('ascii'))
-                item[attribute]['BS'] = binaryset
-    return item
+                response[attribute][attributeType] = parse_attribute_value(item[attribute])
+    return response
 
 
 def backup_table(bucket_path, table_name, frequency):
