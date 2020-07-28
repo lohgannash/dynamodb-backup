@@ -85,14 +85,19 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
+  DefaultEbsEncryptionKeyArn:
+    Type: String
+    Default: 'alias/aws/ebs'
+    Description: e.g. key/1234abcd-12ab-34cd-56ef-1234567890ab
 
 Conditions:
-  QuarterHourlyEnabled: !Equals [!Ref EnableQuarterHourly,  true]
-  HourlyEnabled:        !Equals [!Ref EnableHourly,         true]
-  DailyEnabled:         !Equals [!Ref EnableDaily,          true]
-  WeeklyEnabled:        !Equals [!Ref EnableWeekly,         true]
-  MonthlyEnabled:       !Equals [!Ref EnableMonthly,        true]
-  YearlyEnabled:        !Equals [!Ref EnableYearly,         true]
+  QuarterHourlyEnabled:        !Equals [!Ref EnableQuarterHourly,   true]
+  HourlyEnabled:               !Equals [!Ref EnableHourly,          true]
+  DailyEnabled:                !Equals [!Ref EnableDaily,           true]
+  WeeklyEnabled:               !Equals [!Ref EnableWeekly,          true]
+  MonthlyEnabled:              !Equals [!Ref EnableMonthly,         true]
+  YearlyEnabled:               !Equals [!Ref EnableYearly,          true]
+  CreateDataPipelineKmsPolicy: !Equals [!Ref UseDataPipelineFormat, true]
 Resources:
   BackupBucket:
     Type: AWS::S3::Bucket
@@ -327,4 +332,35 @@ Resources:
       FunctionName: !Ref BackupFunction
       SourceArn: !GetAtt BackupFunctionYearlyBackupSchedule.Arn
 
-
+  DataPipelineEbsKmsPolicy:
+    Condition: CreateDataPipelineKmsPolicy
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DataPipelineEbsKmsPolicy
+      Roles:
+        - 'DataPipelineDefaultRole'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          -
+            Sid: defaultEbsEncryptionKey
+            Effect: Allow
+            Action:
+              - kms:GetPublicKey
+              - kms:ListRetirableGrants
+              - kms:RevokeGrant
+              - kms:RetireGrant
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+            Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:${DefaultEbsEncryptionKeyArn}'
+          -
+            Sid: genericKms
+            Effect: Allow
+            Action:
+              - kms:ListKeys
+              - kms:GenerateRandom
+              - kms:ListAliases
+              - kms:DescribeKey
+            Resource: '*'
