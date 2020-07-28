@@ -112,7 +112,8 @@ def backup_table(bucket_path, table_name, frequency):
         for page in page_iterator:
             for item in page['Items']:
                 item = parse_item(item)
-                f.write(json.dumps(item) + "\n")
+                f.write(json.dumps(item, separators=(',', ':')) + "\n")
+                    # 'separators' parameter required to remove whitespace for correct data pipeline import file syntax
     print("Backup complete")
     print("Adding tags to backup")
 
