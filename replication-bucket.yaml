@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  dynamodb-backup
+  Sample CloudFormation template for replication account destination bucket
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: If left empty then default bucket name will be generated
+  
+  SourceAccountS3Role:
+    Type: String
+    Description: IAM Role ARN used by S3 in source account to replicate objects. Permission will be granted to this role to replicate objects.
+
+  KeepQuarterHourly:
+    Type: Number
+    Default: 1
+    Description: Number of days to keep quarter hourly backups
+  KeepHourly:
+    Type: Number
+    Default: 2
+    Description: Number of days to keep hourly backups
+  KeepDaily:
+    Type: Number
+    Default: 14
+    Description: Number of days to keep daily backups
+  KeepWeekly:
+    Type: Number
+    Default: 56  # 8*7=56
+    Description: Number of days to keep weekly backups
+  KeepMonthly:
+    Type: Number
+    Default: 365
+    Description: Number of days to keep monthly backups
+  KeepYearly:
+    Type: Number
+    Default: 3650 # 365 * 10
+    Description: Number of days to keep yearly backups
+
+Conditons:
+  BucketNameProvided: !Not [!Equals [!Ref BucketName, '']]
+
+Resources:
+  ReplicationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::If:
+          - BucketNameProvided
+          - !Ref BucketName
+          - !Sub '${AWS::AccountId}-dynamodb-backup-databunker'
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: QuarterHourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepQuarterHourly
+            TagFilters:
+              - Key: Frequency
+                Value: QuarterHourly
+          - Id: HourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepHourly
+            TagFilters:
+              - Key: Frequency
+                Value: Hourly
+          - Id: DailyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepDaily
+            TagFilters:
+              - Key: Frequency
+                Value: Daily
+          - Id: WeeklyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepWeekly
+            TagFilters:
+              - Key: Frequency
+                Value: Weekly
+          - Id: MonthlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepMonthly
+            TagFilters:
+              - Key: Frequency
+                Value: Monthly
+          - Id: YearlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepYearly
+            TagFilters:
+              - Key: Frequency
+                Value: Yearly
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref ReplicationBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref SourceAccountS3Role
+            Action:
+              - s3:GetBucketVersioning
+              - s3:PutBucketVersioning
+              - s3:ReplicateObject
+              - s3:ReplicateDelete
+              - s3:ObjectOwnerOverrideToBucketOwner
+            Resource:
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}'
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}/*'
