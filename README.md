@@ -69,6 +69,17 @@ If the result is `alias/aws/ebs` then you are *not* specifying a custom KMS key.
 
 Once the stack has launched and the policy has been created then you can check the `DataPipelineDefaultRole` IAM role to verify that the `DataPipelineEbsKmsPolicy` has been attached.
 
+## Cross Account Replication
+
+To enable replication of S3 bucket objects (i.e. backups files) to a cross account bucket e.g. databunker account bucket, set `EnableCrossAccountReplication` to true.
+
+Things currently not supported by AWS CloudFormation:
+
+- [DeleteMarkerReplication](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-deletemarkerreplication.html)
+- [ReplicationTime](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationtime.html)
+- [Metrics](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-metrics.html)
+- [ReplicationRuleFilter](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationrulefilter.html)
+- [Priority](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationconfiguration-rules.html#cfn-s3-bucket-replicationrule-priority)
 
 ## Use the SAM CLI to build and test locally
 

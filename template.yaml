@@ -90,15 +90,71 @@ Parameters:
     Default: 'alias/aws/ebs'
     Description: e.g. key/1234abcd-12ab-34cd-56ef-1234567890ab
 
+  EnableCrossAccountReplication:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable replication of S3 bucket objects to cross account S3 bucket
+  DestinationAccount:
+    Type: String
+    Default: 123456789012
+    Description: AWS account number of replication account. This parameter is only used if EnableCrossAccountReplication is set to true.
+  DestinationAccountBucketName:
+    Type: String
+    Default: databunker-bucket-name
+    Description: Name of the S3 bucket in the destination account to replicate objects to. This parameter is only used if EnableCrossAccountReplication is set to true.
+
+
 Conditions:
-  QuarterHourlyEnabled:        !Equals [!Ref EnableQuarterHourly,   true]
-  HourlyEnabled:               !Equals [!Ref EnableHourly,          true]
-  DailyEnabled:                !Equals [!Ref EnableDaily,           true]
-  WeeklyEnabled:               !Equals [!Ref EnableWeekly,          true]
-  MonthlyEnabled:              !Equals [!Ref EnableMonthly,         true]
-  YearlyEnabled:               !Equals [!Ref EnableYearly,          true]
-  CreateDataPipelineKmsPolicy: !Equals [!Ref UseDataPipelineFormat, true]
+  QuarterHourlyEnabled:           !Equals [!Ref EnableQuarterHourly,           true]
+  HourlyEnabled:                  !Equals [!Ref EnableHourly,                  true]
+  DailyEnabled:                   !Equals [!Ref EnableDaily,                   true]
+  WeeklyEnabled:                  !Equals [!Ref EnableWeekly,                  true]
+  MonthlyEnabled:                 !Equals [!Ref EnableMonthly,                 true]
+  YearlyEnabled:                  !Equals [!Ref EnableYearly,                  true]
+  CreateDataPipelineKmsPolicy:    !Equals [!Ref UseDataPipelineFormat,         true]
+  CrossAccountReplicationEnabled: !Equals [!Ref EnableCrossAccountReplication, true]
+
+
 Resources:
+  S3ReplicationRole:
+    Condition: CrossAccountReplicationEnabled
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - s3.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+      - PolicyName: Ddb-Backups-S3-Replication-Policy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - 's3:Get*'
+                - 's3:ListBucket'
+              Resource:
+                - !Sub 'arn:aws:s3:::${AWS::AccountId}-${BackupBucketSuffix}' # must match S3 bucket naming convention
+                - !Sub 'arn:aws:s3:::${AWS::AccountId}-${BackupBucketSuffix}/*'
+            - Effect: Allow
+              Action:
+                - 's3:ReplicateObject'
+                - 's3:ReplicateDelete'
+                - 's3:ReplicateTags'
+                - 's3:GetObjectVersionTagging'
+                - 's3:ObjectOwnerOverrideToBucketOwner'
+              Resource:
+                - !Sub 'arn:aws:s3:::${DestinationAccountBucketName}/*'
+
   BackupBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -107,6 +163,25 @@ Resources:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      ReplicationConfiguration:
+        Fn::If:
+          - CrossAccountReplicationEnabled
+          - Role: !GetAtt S3ReplicationRole.Arn
+            Rules:
+              - Destination: 
+                  AccessControlTranslation: 
+                    Owner: Destination
+                  Account: !Ref DestinationAccount
+                  Bucket: !Sub 'arn:aws:s3:::${DestinationAccountBucketName}'
+                  # StorageClass: String # optional if you want to save costs
+                  # EncryptionConfiguration: # only required if using CMK KMS keys for S3 bucket object encryption
+                  #   ReplicaKmsKeyID: key arn
+                Status: Enabled
+                # Prefix: !Sub '${AWS::AccountId}' # optional
+                # SourceSelectionCriteria: # optional
+                #   SseKmsEncryptedObjects:
+                #     Status: Enabled
+          - !Ref 'AWS::NoValue'
       LifecycleConfiguration:
         Rules:
           - Id: QuarterHourlyRetentionRule
