@@ -57,7 +57,7 @@ Also if `UseDataPipelineFormat` is set to `true` then the IAM policy `DataPipeli
 This policy specifies additional permissions that may be required by the IAM role `DataPipelineDefaultRole`.
 The `DataPipelineDefaultRole` role gets created for you automatically by Data Pipeline ([refer to AWS Docs here](https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-get-setup.html#dp-iam-roles-new)) and uses the `AWSDataPipelineRole` managed policy.
 
-However if you have specified a default EBS encryption key in a region then the managed policy does not contain sufficient permissions to run the Data Pipeline import (or export) job successfully. The `DataPipelineEbsKmsPolicy` in the SAM template contains the additional permissions required.
+However if you have specified a default EBS encryption key in a region then the managed policy will not have sufficient permissions to run the Data Pipeline import (or export) job successfully. The `DataPipelineEbsKmsPolicy` in the SAM template contains the additional permissions required.
 
 To check if your region is using a custom EBS encryption key you can run the [AWS CLI/API command](https://docs.aws.amazon.com/cli/latest/reference/ec2/get-ebs-default-kms-key-id.html) to find the ARN:
 
@@ -65,9 +65,9 @@ To check if your region is using a custom EBS encryption key you can run the [AW
 aws ec2 get-ebs-default-kms-key-id --region ap-southeast-2
 ```
 
-If the result is `alias/aws/ebs` then you are *not* specifying a custom KMS key. However if the result is a KMS key ARN then copy this ARN into the SAM template parameter `DefaultEbsEncryptionKeyArn`.
+If the result is `alias/aws/ebs` then you are *not* specifying a custom KMS key. However if the result is a KMS key ARN then you will need to copy this ARN into the SAM template parameter `DefaultEbsEncryptionKeyArn`.
 
-Once the stack has launched and the policy has been created then you will need to attach this policy to the `DataPipelineDefaultRole` IAM role.
+Once the stack has launched and the policy has been created then you can check the `DataPipelineDefaultRole` IAM role to verify that the `DataPipelineEbsKmsPolicy` has been attached.
 
 
 ## Use the SAM CLI to build and test locally
