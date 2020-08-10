@@ -73,7 +73,7 @@ Once the stack has launched and the policy has been created then you can check t
 
 To enable replication of S3 bucket objects (i.e. backups files) to a cross account bucket e.g. databunker account bucket, set `EnableCrossAccountReplication` to true.
 
-Things currently not supported by AWS CloudFormation:
+NOTE: These settings are currently not supported by AWS CloudFormation and so need to be configured manually:
 
 - [DeleteMarkerReplication](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-deletemarkerreplication.html)
 - [ReplicationTime](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationtime.html)
