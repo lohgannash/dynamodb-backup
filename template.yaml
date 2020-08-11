@@ -85,15 +85,78 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
+  DefaultEbsEncryptionKeyArn:
+    Type: String
+    Default: 'arn:aws:kms:ap-southeast-2:123456789012:alias/aws/ebs'
+    Description: 'e.g. arn:aws:kms:<Region>:<AccountId>:key/1234abcd-12ab-34cd-56ef-1234567890ab - to find out run: aws ec2 get-ebs-default-kms-key-id --region <region>'
+
+  EnableCrossAccountReplication:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable replication of S3 bucket objects to cross account S3 bucket
+  DestinationAccount:
+    Type: String
+    Default: 123456789012
+    Description: AWS account number of replication account. This parameter is only used if EnableCrossAccountReplication is set to true.
+  DestinationAccountBucketName:
+    Type: String
+    Default: databunker-bucket-name
+    Description: Name of the S3 bucket in the destination account to replicate objects to. This parameter is only used if EnableCrossAccountReplication is set to true. NOTE the bucket must already exist.
+
 
 Conditions:
-  QuarterHourlyEnabled: !Equals [!Ref EnableQuarterHourly,  true]
-  HourlyEnabled:        !Equals [!Ref EnableHourly,         true]
-  DailyEnabled:         !Equals [!Ref EnableDaily,          true]
-  WeeklyEnabled:        !Equals [!Ref EnableWeekly,         true]
-  MonthlyEnabled:       !Equals [!Ref EnableMonthly,        true]
-  YearlyEnabled:        !Equals [!Ref EnableYearly,         true]
+  QuarterHourlyEnabled:           !Equals [!Ref EnableQuarterHourly,           true]
+  HourlyEnabled:                  !Equals [!Ref EnableHourly,                  true]
+  DailyEnabled:                   !Equals [!Ref EnableDaily,                   true]
+  WeeklyEnabled:                  !Equals [!Ref EnableWeekly,                  true]
+  MonthlyEnabled:                 !Equals [!Ref EnableMonthly,                 true]
+  YearlyEnabled:                  !Equals [!Ref EnableYearly,                  true]
+  CreateDataPipelineKmsPolicy:    !Equals [!Ref UseDataPipelineFormat,         true]
+  CrossAccountReplicationEnabled: !Equals [!Ref EnableCrossAccountReplication, true]
+
+
 Resources:
+  S3ReplicationRole:
+    Condition: CrossAccountReplicationEnabled
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - s3.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+      - PolicyName: Ddb-Backups-S3-Replication-Policy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - 's3:Get*'
+                - 's3:ListBucket'
+              Resource:
+                # cannot !Ref bucket directly or will create circular dependency
+                # so this must match S3 bucket naming convention
+                - !Sub 'arn:aws:s3:::${AWS::AccountId}-${BackupBucketSuffix}'
+                - !Sub 'arn:aws:s3:::${AWS::AccountId}-${BackupBucketSuffix}/*'
+            - Effect: Allow
+              Action:
+                - 's3:ReplicateObject'
+                - 's3:ReplicateDelete'
+                - 's3:ReplicateTags'
+                - 's3:GetObjectVersionTagging'
+                - 's3:ObjectOwnerOverrideToBucketOwner'
+              Resource:
+                - !Sub 'arn:aws:s3:::${DestinationAccountBucketName}/*'
+
   BackupBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -102,45 +165,98 @@ Resources:
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      ReplicationConfiguration:
+        Fn::If:
+          - CrossAccountReplicationEnabled
+          - Role: !GetAtt S3ReplicationRole.Arn
+            Rules:
+              - Destination: 
+                  AccessControlTranslation: 
+                    Owner: Destination
+                  Account: !Ref DestinationAccount
+                  Bucket: !Sub 'arn:aws:s3:::${DestinationAccountBucketName}'
+                  # StorageClass: String # optional if you want to save costs
+                  # EncryptionConfiguration: # only required if using CMK KMS keys for S3 bucket object encryption
+                  #   ReplicaKmsKeyID: key arn
+                Status: Enabled
+                # Prefix: !Sub '${AWS::AccountId}' # optional
+                # SourceSelectionCriteria: # optional
+                #   SseKmsEncryptedObjects:
+                #     Status: Enabled
+          - !Ref 'AWS::NoValue'
       LifecycleConfiguration:
         Rules:
           - Id: QuarterHourlyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepQuarterHourly
+            NoncurrentVersionExpirationInDays: !Ref KeepQuarterHourly
             TagFilters:
               - Key: Frequency
                 Value: QuarterHourly
           - Id: HourlyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepHourly
+            NoncurrentVersionExpirationInDays: !Ref KeepHourly
             TagFilters:
               - Key: Frequency
                 Value: Hourly
           - Id: DailyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepDaily
+            NoncurrentVersionExpirationInDays: !Ref KeepDaily
             TagFilters:
               - Key: Frequency
                 Value: Daily
           - Id: WeeklyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepWeekly
+            NoncurrentVersionExpirationInDays: !Ref KeepWeekly
             TagFilters:
               - Key: Frequency
                 Value: Weekly
           - Id: MonthlyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepMonthly
+            NoncurrentVersionExpirationInDays: !Ref KeepMonthly
             TagFilters:
               - Key: Frequency
                 Value: Monthly
           - Id: YearlyRetentionRule
             Status: Enabled
             ExpirationInDays: !Ref KeepYearly
+            NoncurrentVersionExpirationInDays: !Ref KeepYearly
             TagFilters:
               - Key: Frequency
                 Value: Yearly
+      VersioningConfiguration:
+        Status: Enabled
 
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: Explicit deny to view objects unless whitelisted
+            Effect: Deny
+            NotPrincipal:
+              AWS: !Ref 'AWS::AccountId'
+            Action:
+              # - s3:* # only uncomment this once you have added your IAM user/group/role to the whitelist
+                       # below otherwise you will have to log in as root to edit bucket policy
+              - s3:GetObject*
+              - s3:ListBucket
+            Resource:
+              - !Sub 'arn:aws:s3:::${BackupBucket}'
+              - !Sub 'arn:aws:s3:::${BackupBucket}/*'
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn:
+                  # add your IAM users/groups/roles here
+                  - !GetAtt BackupFunctionRole.Arn
+                  - !GetAtt S3ReplicationRole.Arn
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/Administrator'
 
   BackupFunctionRole:
     Type: AWS::IAM::Role
@@ -327,4 +443,35 @@ Resources:
       FunctionName: !Ref BackupFunction
       SourceArn: !GetAtt BackupFunctionYearlyBackupSchedule.Arn
 
-
+  DataPipelineEbsKmsPolicy:
+    Condition: CreateDataPipelineKmsPolicy
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: DataPipelineEbsKmsPolicy
+      Roles:
+        - 'DataPipelineDefaultRole'
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          -
+            Sid: defaultEbsEncryptionKey
+            Effect: Allow
+            Action:
+              - kms:GetPublicKey
+              - kms:ListRetirableGrants
+              - kms:RevokeGrant
+              - kms:RetireGrant
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+            Resource: !Ref DefaultEbsEncryptionKeyArn
+          -
+            Sid: genericKms
+            Effect: Allow
+            Action:
+              - kms:ListKeys
+              - kms:GenerateRandom
+              - kms:ListAliases
+              - kms:DescribeKey
+            Resource: '*'

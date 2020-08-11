@@ -44,6 +44,43 @@ The first command will build the source of your application. The second command 
 
 You can find your API Gateway Endpoint URL in the output values displayed after deployment.
 
+## Data Pipeline Format
+
+The SAM template contains a parameter `UseDataPipelineFormat` which you can toggle to update the backup lambda's environment variable (also named `UseDataPipelineFormat`). If set to true then the backup lambda will output a backup file which can be used in the Data Pipeline job template `Import DynamoDB backup data from S3`. Refer to [step by step instructions from AWS Docs here](https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-importexport-ddb.html).
+
+NOTE! From the AWS Docs (above):
+> DynamoDB tables configured for On-Demand Capacity are supported only when using Amazon EMR release version 5.24.0 or later. When you use a template to create a pipeline for DynamoDB, choose Edit in Architect and then choose Resources to configure the Amazon EMR cluster that AWS Data Pipeline provisions. For Release label, choose emr-5.24.0 or later.
+
+
+Also if `UseDataPipelineFormat` is set to `true` then the IAM policy `DataPipelineEbsKmsPolicy` will also be created.
+
+This policy specifies additional permissions that may be required by the IAM role `DataPipelineDefaultRole`.
+The `DataPipelineDefaultRole` role gets created for you automatically by Data Pipeline ([refer to AWS Docs here](https://docs.aws.amazon.com/datapipeline/latest/DeveloperGuide/dp-get-setup.html#dp-iam-roles-new)) and uses the `AWSDataPipelineRole` managed policy.
+
+However if you have specified a default EBS encryption key in a region then the managed policy will not have sufficient permissions to run the Data Pipeline import (or export) job successfully. The `DataPipelineEbsKmsPolicy` in the SAM template contains the additional permissions required.
+
+To check if your region is using a custom EBS encryption key you can run the [AWS CLI/API command](https://docs.aws.amazon.com/cli/latest/reference/ec2/get-ebs-default-kms-key-id.html) to find the ARN:
+
+```bash
+aws ec2 get-ebs-default-kms-key-id --region ap-southeast-2
+```
+
+If the result is `alias/aws/ebs` then you are *not* specifying a custom KMS key. However if the result is a KMS key ARN then you will need to copy this ARN into the SAM template parameter `DefaultEbsEncryptionKeyArn`.
+
+Once the stack has launched and the policy has been created then you can check the `DataPipelineDefaultRole` IAM role to verify that the `DataPipelineEbsKmsPolicy` has been attached.
+
+## Cross Account Replication
+
+To enable replication of S3 bucket objects (i.e. backups files) to a cross account bucket e.g. databunker account bucket, set `EnableCrossAccountReplication` to true.
+
+NOTE: These settings are currently not supported by AWS CloudFormation and so need to be configured manually:
+
+- [DeleteMarkerReplication](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-deletemarkerreplication.html)
+- [ReplicationTime](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationtime.html)
+- [Metrics](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-metrics.html)
+- [ReplicationRuleFilter](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationrulefilter.html)
+- [Priority](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-replicationconfiguration-rules.html#cfn-s3-bucket-replicationrule-priority)
+
 ## Use the SAM CLI to build and test locally
 
 Build your application with the `sam build --use-container` command.

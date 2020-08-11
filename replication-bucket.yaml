@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  dynamodb-backup
+  Sample CloudFormation template for replication account destination bucket
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: If left empty then default bucket name will be generated
+  
+  SourceAccountId:
+    Type: String
+    Default: 123456789012
+    Description: Source AWS Account ID
+
+  SourceAccountS3RoleName:
+    Type: String
+    Default: Ddb-Backups-S3-Replication-Role
+    Description: The name of the IAM Role used by S3 in source account to replicate objects. Permission will be granted to this role to replicate objects.
+
+  KeepQuarterHourly:
+    Type: Number
+    Default: 1
+    Description: Number of days to keep quarter hourly backups
+  KeepHourly:
+    Type: Number
+    Default: 2
+    Description: Number of days to keep hourly backups
+  KeepDaily:
+    Type: Number
+    Default: 14
+    Description: Number of days to keep daily backups
+  KeepWeekly:
+    Type: Number
+    Default: 56  # 8*7=56
+    Description: Number of days to keep weekly backups
+  KeepMonthly:
+    Type: Number
+    Default: 365
+    Description: Number of days to keep monthly backups
+  KeepYearly:
+    Type: Number
+    Default: 3650 # 365 * 10
+    Description: Number of days to keep yearly backups
+
+Conditions:
+  BucketNameProvided: !Not [!Equals [!Ref BucketName, '']]
+
+Resources:
+  ReplicationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::If:
+          - BucketNameProvided
+          - !Ref BucketName
+          - !Sub '${SourceAccountId}-dynamodb-backup-databunker'
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: QuarterHourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepQuarterHourly
+            NoncurrentVersionExpirationInDays: !Ref KeepQuarterHourly
+            TagFilters:
+              - Key: Frequency
+                Value: QuarterHourly
+          - Id: HourlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepHourly
+            NoncurrentVersionExpirationInDays: !Ref KeepHourly
+            TagFilters:
+              - Key: Frequency
+                Value: Hourly
+          - Id: DailyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepDaily
+            NoncurrentVersionExpirationInDays: !Ref KeepDaily
+            TagFilters:
+              - Key: Frequency
+                Value: Daily
+          - Id: WeeklyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepWeekly
+            NoncurrentVersionExpirationInDays: !Ref KeepWeekly
+            TagFilters:
+              - Key: Frequency
+                Value: Weekly
+          - Id: MonthlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepMonthly
+            NoncurrentVersionExpirationInDays: !Ref KeepMonthly
+            TagFilters:
+              - Key: Frequency
+                Value: Monthly
+          - Id: YearlyRetentionRule
+            Status: Enabled
+            ExpirationInDays: !Ref KeepYearly
+            NoncurrentVersionExpirationInDays: !Ref KeepYearly
+            TagFilters:
+              - Key: Frequency
+                Value: Yearly
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref ReplicationBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - 
+            Sid: allow source account to replicate objects
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${SourceAccountId}:role/${SourceAccountS3RoleName}'
+            Action:
+              - s3:GetBucketVersioning
+              - s3:PutBucketVersioning
+              - s3:ReplicateObject
+              - s3:ReplicateDelete
+              - s3:ObjectOwnerOverrideToBucketOwner
+            Resource:
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}'
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}/*'
+          - 
+            Sid: Explicit deny to view objects unless whitelisted
+            Effect: Deny
+            NotPrincipal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action:
+              # - s3:* # only uncomment this once you have added your IAM user/role/group to the whitelist
+                       # below otherwise you will have to log in as root to edit bucket policy
+              - s3:GetObject*
+              - s3:ListBucket
+            Resource:
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}'
+              - !Sub 'arn:aws:s3:::${ReplicationBucket}/*'
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn:
+                  # add your IAM users/groups/roles here
+                  - !Sub 'arn:aws:iam::${SourceAccountId}:role/${SourceAccountS3RoleName}'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/Administrator
