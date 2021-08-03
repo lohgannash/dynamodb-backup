@@ -125,6 +125,28 @@ def backup_table(bucket_path, table_name, frequency):
         tags["Frequency"] = frequency
     fs.put_tags(s3_path, tags)
     print("Tags added")
+
+def backup_table_v2(bucket_path, table_name, frequency):
+    print("Exporting table " + table_name)
+    client = boto3.client("dynamodb", region_name=Region)
+
+    backup_table_config(client, bucket_path, table_name)
+
+    table_arn = "arn:aws:dynamodb:{}:{}:table/{}".format(
+      boto3.client('sts').get_caller_identity()['Account'],
+      Region,
+      table_name
+    )
+
+    s3_prefix = f"{table_name}/{bucket_path}/{table_name}-{frequency}-{bucket_path}-v2.json"
+
+    response = client.export_table_to_point_in_time(
+      TableArn=table_arn,
+      S3Bucket=BucketName,  
+      S3Prefix=s3_prefix,
+      ExportFormat='DYNAMODB_JSON'
+    )
+    print(f"Response: {response}")
     
 
 def invoke_lambda(client, arn, event={}):
@@ -147,6 +169,20 @@ def create_backups(frequency, arn):
         event["frequency"] = frequency
         invoke_lambda(lambda_client, arn, event)
 
+def create_backups_v2(frequency, arn):
+    ddb_client = boto3.client("dynamodb", region_name=Region)
+    lambda_client = boto3.client("lambda", region_name=Region)
+
+    tables = get_dynamodb_tables(ddb_client)
+    tables = filter_tables(ddb_client, tables)
+
+    for table in tables:
+        event = {}
+        event["action"] = "backup-table-v2"
+        event["table_name"] = table
+        event["frequency"] = frequency
+        invoke_lambda(lambda_client, arn, event)
+
 
 def lambda_handler(event, context):
     dt = datetime.datetime.utcnow()
@@ -155,6 +191,7 @@ def lambda_handler(event, context):
         frequency = event["frequency"]
 
     if "action" in event:
+
         if event["action"] == "create-backups":
             create_backups(frequency, context.invoked_function_arn)
 
@@ -162,6 +199,14 @@ def lambda_handler(event, context):
             if "table_name" in event:
                 bucket_path = dt.strftime('%Y-%m-%d-%H-%M-%S') # formats to '2020-12-31-23-59-59'
                 backup_table(bucket_path, event["table_name"], frequency)
+        
+        if event["action"] == "create-backups-v2":
+            create_backups_v2(frequency, context.invoked_function_arn)
+
+        if event["action"] == "backup-table-v2":
+            if "table_name" in event:
+                bucket_path = dt.strftime('%Y-%m-%d-%H-%M-%S') # formats to '2020-12-31-23-59-59'
+                backup_table_v2(bucket_path, event["table_name"], frequency)
     else:
         raise Exception("An 'action' is missing from this invocations payload")
 

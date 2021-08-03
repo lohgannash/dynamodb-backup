@@ -16,7 +16,12 @@ Parameters:
     Description: BackupBucketSuffix
     Type: String
     Default: 'dynamodb-backup'
-  
+  UseManagedExport:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
   EnableQuarterHourly:
     Type: String
     Default: 'false'
@@ -116,6 +121,7 @@ Conditions:
   YearlyEnabled:                  !Equals [!Ref EnableYearly,                  true]
   CreateDataPipelineKmsPolicy:    !Equals [!Ref UseDataPipelineFormat,         true]
   CrossAccountReplicationEnabled: !Equals [!Ref EnableCrossAccountReplication, true]
+  UseManagedExport:               !Equals [!Ref UseManagedExport, true]
 
 
 Resources:
@@ -284,6 +290,9 @@ Resources:
                 - 's3:GetObject'
                 - 's3:PutObjectTagging'
                 - 's3:GetObjectTagging'
+                - 's3:GetObjectTagging'
+                - 's3:AbortMultipartUpload'
+                - 's3:PutObjectAcl'
               Resource: !Sub 'arn:aws:s3:::${BackupBucket}/*'
             - Effect: Allow
               Action:
@@ -296,6 +305,7 @@ Resources:
                 - 'dynamodb:Query'
                 - 'dynamodb:Scan'
                 - 'dynamodb:ListTagsOfResource'
+                - 'dynamodb:ExportTableToPointInTime'
               Resource: '*'
             - Effect: Allow
               Action:
@@ -335,113 +345,168 @@ Resources:
     Properties:
       ScheduleExpression: cron(0/15 * * * ? *)
       Targets:
-        - 
-          Id: BackupFunctionQuarterHourlyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"QuarterHourly"}'
+      - Id: BackupFunctionQuarterHourlyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"QuarterHourly"}'
+          - '{"action":"create-backups", "frequency":"QuarterHourly"}'
   BackupFunctionQuarterHourlyBackupSchedulePermission:
     Condition: QuarterHourlyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionQuarterHourlyBackupSchedule.Arn
-
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionQuarterHourlyBackupSchedule
+        - Arn
   BackupFunctionHourlyBackupSchedule:
     Condition: HourlyEnabled
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: cron(0 * * * ? *)
       Targets:
-        - 
-          Id: BackupFunctionHourlyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"Hourly"}'
+      - Id: BackupFunctionHourlyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"Hourly"}'
+          - '{"action":"create-backups", "frequency":"Hourly"}'
   BackupFunctionHourlyBackupSchedulePermission:
     Condition: HourlyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionHourlyBackupSchedule.Arn
-
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionHourlyBackupSchedule
+        - Arn
   BackupFunctionDailyBackupSchedule:
     Condition: DailyEnabled
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: cron(0 0 * * ? *)
       Targets:
-        - 
-          Id: BackupFunctionDailyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"Daily"}'
+      - Id: BackupFunctionDailyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"Daily"}'
+          - '{"action":"create-backups", "frequency":"Daily"}'
   BackupFunctionDailyBackupSchedulePermission:
     Condition: DailyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionDailyBackupSchedule.Arn
-
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionDailyBackupSchedule
+        - Arn
   BackupFunctionWeeklyBackupSchedule:
     Condition: WeeklyEnabled
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: cron(0 0 ? * 1 *)
       Targets:
-        - 
-          Id: BackupFunctionWeeklyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"Weekly"}'
+      - Id: BackupFunctionWeeklyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"Weekly"}'
+          - '{"action":"create-backups", "frequency":"Weekly"}'
   BackupFunctionWeeklyBackupSchedulePermission:
     Condition: WeeklyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionWeeklyBackupSchedule.Arn
-
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionWeeklyBackupSchedule
+        - Arn
   BackupFunctionMonthlyBackupSchedule:
     Condition: MonthlyEnabled
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: cron(0 0 1 * ? *)
       Targets:
-        - 
-          Id: BackupFunctionMonthlyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"Monthly"}'
+      - Id: BackupFunctionMonthlyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"Monthly"}'
+          - '{"action":"create-backups", "frequency":"Monthly"}'
   BackupFunctionMonthlyBackupSchedulePermission:
     Condition: MonthlyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionMonthlyBackupSchedule.Arn
-
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionMonthlyBackupSchedule
+        - Arn
   BackupFunctionYearlyBackupSchedule:
     Condition: YearlyEnabled
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: cron(0 0 1 1 ? *)
       Targets:
-        - 
-          Id: BackupFunctionYearlyBackupScheduleLambdaTarget
-          Arn: !GetAtt BackupFunction.Arn
-          Input: '{"action":"create-backups", "frequency":"Yearly"}'
+      - Id: BackupFunctionYearlyBackupScheduleLambdaTarget
+        Arn:
+          Fn::GetAtt:
+          - BackupFunction
+          - Arn
+        Input: 
+          !If
+          - UseManagedExport
+          - '{"action":"create-backups-v2", "frequency":"Yearly"}'
+          - '{"action":"create-backups", "frequency":"Yearly"}'
   BackupFunctionYearlyBackupSchedulePermission:
     Condition: YearlyEnabled
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:invokeFunction
       Principal: events.amazonaws.com
-      FunctionName: !Ref BackupFunction
-      SourceArn: !GetAtt BackupFunctionYearlyBackupSchedule.Arn
+      FunctionName:
+        Ref: BackupFunction
+      SourceArn:
+        Fn::GetAtt:
+        - BackupFunctionYearlyBackupSchedule
+        - Arn
 
   DataPipelineEbsKmsPolicy:
     Condition: CreateDataPipelineKmsPolicy
