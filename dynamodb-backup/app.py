@@ -133,8 +133,8 @@ def backup_table_v2(bucket_path, table_name, frequency):
     backup_table_config(client, bucket_path, table_name)
 
     table_arn = "arn:aws:dynamodb:{}:{}:table/{}".format(
-      boto3.client('sts').get_caller_identity()['Account'],
       Region,
+      boto3.client('sts').get_caller_identity()['Account'],
       table_name
     )
 
